@@ -1,0 +1,16 @@
+{
+    "name": "component6/crypto-whatsapp",
+    "version": "1.0.0",
+    "type": "library",
+    "description": "",
+    "license": "MIT",
+    "require": {
+        "php": ">=7.4",
+        "guzzlehttp/psr7": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "CryptoWhatsapp\\": "src/"
+        }
+    }
+}
