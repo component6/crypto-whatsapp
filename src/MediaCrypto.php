@@ -77,24 +77,33 @@ class MediaCrypto
      */
     public function encryptChunks(?int $bufferSize = null): string
     {
-        $buffer = '';
+        $outputStream = fopen('php://temp', 'r+');
+
+        if ($outputStream === false) {
+            throw new \RuntimeException('Failed to create a temporary stream');
+        }
 
         $this->source->rewind();
-        while (!$this->source->eof()) {
-            $chunk = $this->source->read($bufferSize ?? $this->bufferSize);
 
+        while (!$this->source->eof()) {
+            $chunk    = $this->source->read($bufferSize ?? $this->bufferSize);
             $encChunk = CryptoHelper::encrypt($chunk, $this->cipherKey, $this->iv);
 
             if ($encChunk === false) {
+                fclose($outputStream);
                 throw new \RuntimeException('Chunk encryption failed');
             }
 
-            $buffer .= $encChunk;
+            fwrite($outputStream, $encChunk);
         }
 
-        $mac = $this->calculateMac($this->iv . $buffer);
+        rewind($outputStream);
+        $encryptedData = stream_get_contents($outputStream);
+        fclose($outputStream);
 
-        return $buffer . $mac;
+        $mac = $this->calculateMac($this->iv . $encryptedData);
+
+        return $encryptedData . $mac;
     }
 
     /**
@@ -114,7 +123,7 @@ class MediaCrypto
         }
 
         $encryptedData = substr($contents, 0, -10);
-        $mac = substr($contents, -10);
+        $mac           = substr($contents, -10);
 
         $expectedMac = CryptoHelper::hmacSha256Truncated($this->macKey, $this->iv . $encryptedData);
 
@@ -141,19 +150,27 @@ class MediaCrypto
      */
     public function decryptChunks(?int $bufferSize = null): string
     {
-        $buffer = '';
+        $outputStream = fopen('php://temp', 'r+');
+
+        if ($outputStream === false) {
+            throw new \RuntimeException('Failed to create a temporary stream');
+        }
 
         $this->source->rewind();
         while (!$this->source->eof()) {
-            $buffer .= $this->source->read($bufferSize ?? $this->bufferSize);
+            fwrite($outputStream, $this->source->read($bufferSize ?? $this->bufferSize));
         }
 
-        if (strlen($buffer) < 10) {
+        rewind($outputStream);
+        $decryptedData = stream_get_contents($outputStream);
+        fclose($outputStream);
+
+        if (strlen($decryptedData) < 10) {
             throw new \LengthException('Invalid decrypted data length');
         }
 
-        $file = substr($buffer, 0, -10);
-        $mac  = substr($buffer, -10);
+        $file = substr($decryptedData, 0, -10);
+        $mac  = substr($decryptedData, -10);
 
         $macVerification = $this->calculateMac($this->iv . $file);
 
@@ -164,6 +181,10 @@ class MediaCrypto
         return CryptoHelper::decrypt($file, $this->cipherKey, $this->iv);
     }
 
+    /**
+     * @param string $data
+     * @return string
+     */
     private function calculateMac(string $data): string
     {
         return substr(hash_hmac('sha256', $data, $this->macKey, true), 0, 10);
